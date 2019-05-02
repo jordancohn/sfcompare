@@ -1,0 +1,231 @@
+<html>
+	<head>
+		<title>Salesforce Field Permissions Comparison Tool</title>
+        <script src="file-wrapper.js"></script>
+		<script src="line-navigator.js"></script>	
+        <script>
+            var fieldNames = new Set();
+            var profileNames = new Set();
+            var permissionsDict = {};
+
+            function FileSelected() {
+                OnFileSelected();
+            }
+
+
+            function OnFileSelected() {
+                // Get file list from input
+                var files = document.getElementById('input-file').files;
+                if (files.length == 0) return;
+
+                Array.from(files).forEach((file)=>{
+                    var navigator = new LineNavigator(file);
+                    var fileName = file.name;
+                    while (profileNames.has(fileName)) {
+                        fileName = fileName + " 2";
+                    }
+                    profileNames.add(fileName);
+                    var indexToStartWith = 0;
+                    // === Find all ===
+                    regex = /<((read|edit)able|field)>.*/;
+                    var tagRegex = /(<([^>]+)>)/ig;
+                    var limit = 100000;
+                    navigator.findAll(regex, indexToStartWith, limit, function (err, index, limitHit, results) {                        
+                        // Error happened
+                        if (err) return;
+                        
+
+                        // If limitHit is true that means that most probably not all matching lines already found
+                        // Continue search from last line's index +1 to find all
+                        for (var i = 0; i < results.length; i++) {
+                            var result = results[i];
+                            // result.index    index of line
+                            // result.line     full text of line
+                            // result.offset   position of match in this line
+                            // result.length   length of match in this line
+                            // highlight match: 
+                            //    result.line.slice(0, result.offset) + "<mark>" + 
+                            //    result.line.slice(result.offset, result.offset + result.length) + 
+                            //    "</mark>" + result.line.slice(result.offset + result.length)
+                            var noTag = result.line.replace(tagRegex, "").trim();
+                            var tag = result.line.match(tagRegex)[0]
+                            if (i%3 === 0) {
+                                var rowObj = {};
+                            }
+                            switch (tag) {
+                                case "<editable>":
+                                    rowObj.editable = noTag;
+                                    break;
+                                case "<readable>":
+                                    rowObj.readable = noTag;
+                                    break;
+                                case "<field>":
+                                    rowObj.field = noTag;
+                                    fieldNames.add(noTag);
+                            }
+                            
+                            if (i%3 === 2) {
+                                //console.log(rowObj)
+                                if (permissionsDict[rowObj.field] === undefined) {
+                                    permissionsDict[rowObj.field] = {};
+                                }
+                                permissionsDict[rowObj.field][fileName] = rowObj;
+                                //console.log(permissionsDict[rowObj.field]);
+                            }
+                            console.log('done for loop');
+                        }
+
+                        if (document.contains(document.getElementById('fieldTable'))) {
+                            document.getElementById('fieldTable').remove();
+                        }
+                        
+                        var table = document.createElement("table");
+                        table.id = 'fieldTable';
+                        table.setAttribute("class", "slds-table slds-table_cell-buffer slds-table_bordered");
+
+                        var profileArray = [...profileNames];
+
+                        var header1 = table.createTHead();
+                        //header1.setAttribute("class", "fixed");
+                        var row1 = header1.insertRow();
+                        row1.setAttribute("class", "slds-line-height_reset");
+                        var fieldCell1 =  document.createElement('th');
+                        fieldCell1.setAttribute("scope", "col");
+                        fieldCell1.innerHTML = '';
+                        row1.appendChild(fieldCell1);
+                        profileArray.forEach((profile)=>{
+                            var profileCell = document.createElement('th');
+                            profileCell.setAttribute("scope", "col");
+                            profileCell.innerHTML = profile;
+                            profileCell.setAttribute("colspan", "2");
+                            row1.appendChild(profileCell);
+                        })
+
+                        var header2 = table.createTHead();
+                        //header2.setAttribute("class", "fixed");
+                        var row2 = header2.insertRow();
+                        row2.setAttribute("class", "slds-line-height_reset");
+                        var fieldCell2 =  document.createElement('th');
+                        fieldCell2.setAttribute("scope", "col");
+                        fieldCell2.innerHTML = 'Field';
+                        row2.appendChild(fieldCell2);
+                        profileArray.forEach((profile)=>{
+                            var cell1 = document.createElement('th');
+                            cell1.innerHTML = 'editable';
+                            cell1.setAttribute("scope", "col");
+                            row2.appendChild(cell1);
+                            var cell2 = document.createElement('th');
+                            cell2.innerHTML = 'readable';
+                            cell2.setAttribute("scope", "col");
+                            row2.appendChild(cell2);
+                        })
+
+                        var tbody = document.createElement("tbody");
+
+                        var fieldArray = [...fieldNames].sort();
+                        console.log(fieldArray);
+
+                        fieldArray.forEach((field)=>{
+                            var different = false;
+                            var allFalse = true;
+                            if (permissionsDict[field].hasOwnProperty(profileArray[0])) {
+                                var editableFirst = permissionsDict[field][profileArray[0]].editable;
+                                var readableFirst = permissionsDict[field][profileArray[0]].readable;
+                            } else {
+                                var editableFirst = undefined;
+                                var readableFirst = undefined;
+                            }
+                            console.log(field, editableFirst, readableFirst);
+                            console.log(permissionsDict[field]);
+                            profileArray.forEach((profile)=>{
+                                if (!permissionsDict[field].hasOwnProperty(profile)) {
+                                    different = true;
+                                }
+                                else {
+                                    if (permissionsDict[field][profile].editable !== editableFirst || permissionsDict[field][profile].readable !== readableFirst) {
+                                        different = true;
+                                    }
+                                    
+                                    if (permissionsDict[field][profile].editable === "true" || permissionsDict[field][profile].readable === "true") {
+                                        allFalse = false;
+                                    }
+                                }
+
+                                
+                            });
+
+
+                            if ((different === true && !allFalse) || profileArray.length === 1) {
+                                var row = tbody.insertRow();
+                                row.setAttribute("class", "slds-hint-parent");
+                                var fieldCell = row.insertCell();
+                                fieldCell.innerHTML = field;
+                                //console.log(field);
+
+                                profileArray.forEach((profile)=>{
+                                    //console.log(permissionsDict[field][profile]);
+                                    if (permissionsDict[field][profile] === undefined) {
+                                        var edit = row.insertCell();
+                                        edit.innerHTML = '-';
+                                        var read = row.insertCell();
+                                        read.innerHTML = '-';
+                                    } else {
+                                        var edit = row.insertCell();
+                                        edit.innerHTML = permissionsDict[field][profile].editable;
+                                        var read = row.insertCell();
+                                        read.innerHTML = permissionsDict[field][profile].readable;
+                                    }
+                                });
+                                //console.log(permissionsDict[field]);
+                            }
+                        });
+
+                        table.appendChild(tbody);
+                        console.log('created table');
+                        document.getElementsByTagName('body')[0].appendChild(table);
+                    });
+                });
+            }
+        </script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/design-system/2.8.3/styles/salesforce-lightning-design-system.min.css">
+	</head>
+	<body>
+
+
+        <header class="slds-global-header_container">
+            <div class="slds-global-header">
+                <div class="slds-text-heading_large">Salesforce Field Permissions Comparison Tool</div>
+            </div>
+        </header>
+
+
+
+        <div class="slds-p-top_xx-large slds-form-element" style="padding-top:75px">
+            <div class="slds-text-longform">
+                <p>Upload multiple profiles/permission sets below to see the difference in field permissions.</p>
+                <ul>
+                    <li>Doesn't show rows where visibility is false</li>
+                    <li>Contributions welcome 😊</li>
+                </ul>
+            </div>
+            <span class="slds-form-element__label" id="file-selector-primary-label">Upload Profiles/Permission Sets</span>
+            <div class="slds-form-element__control">
+              <div class="slds-file-selector slds-file-selector_files">
+                <div class="slds-file-selector__dropzone">
+                  <input class="slds-file-selector__input slds-assistive-text" id="input-file" type="file" name="files[]" onchange="FileSelected();" multiple />
+                  <label class="slds-file-selector__body" for="input-file" id="file-selector-secondary-label">
+                    <span class="slds-file-selector__button slds-button slds-button_neutral">
+                      <!-- <svg class="slds-button__icon slds-button__icon_left" aria-hidden="true">
+                        <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#upload" />
+                      </svg> -->
+                      Upload Files</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        <br>
+
+        <table id="fieldTable"></table>
+	</body>
+</html>
